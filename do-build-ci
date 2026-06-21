@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+cd $(dirname $0)
+
+source targets
+
+time (
+        # Debug builds
+        ninja -C ./build.tmp/clang-debug-libc++ $TARGETS &&
+        ninja -C ./build.tmp/gcc-debug $TARGETS &&
+        # Release builds
+        ninja -C ./build.tmp/clang-release-libc++ $TARGETS &&
+        ninja -C ./build.tmp/gcc-release $TARGETS &&
+        # libstdc++
+        ninja -C ./build.tmp/clang-debug $TARGETS &&
+        ninja -C ./build.tmp/clang-release $TARGETS &&
+        # stdlib=libc++ asan
+        ninja -C ./build.tmp/clang-debug-asan $TARGETS &&
+        ninja -C ./build.tmp/clang-release-asan $TARGETS &&
+        # stdlib=libc++ tsan
+        ninja -C ./build.tmp/clang-debug-tsan $TARGETS &&
+        ninja -C ./build.tmp/clang-release-tsan $TARGETS &&
+        # stdlib=libc++ asan force PMR
+        ninja -C ./build.tmp/clang-debug-pmr-asan $TARGETS &&
+        ninja -C ./build.tmp/clang-release-pmr-asan $TARGETS &&
+        # Other
+        ninja -C ./build.tmp/clang-release-flamegraph $TARGETS &&
+        true
+    )

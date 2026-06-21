@@ -1,0 +1,21 @@
+[submodule "libs/planet"]
+	path = libs/planet
+	url = git@github.com:Blue5alamander/planet.git
+[submodule "libs/felspar-test"]
+	path = libs/felspar-test
+	url = https://github.com/Felspar/test.git
+[submodule "libs/felspar-exceptions"]
+	path = libs/felspar-exceptions
+	url = https://github.com/Felspar/exceptions.git
+[submodule "libs/felspar-memory"]
+	path = libs/felspar-memory
+	url = https://github.com/Felspar/memory.git
+[submodule "libs/felspar-coro"]
+	path = libs/felspar-coro
+	url = https://github.com/Felspar/coro.git
+[submodule "libs/felspar-parse"]
+	path = libs/felspar-parse
+	url = https://github.com/Felspar/parse.git
+[submodule "libs/felspar-io"]
+	path = libs/felspar-io
+	url = https://github.com/Felspar/io.git

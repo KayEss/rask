@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+cd $(dirname $0)
+set -e
+
+export ASAN_OPTIONS=alloc_dealloc_mismatch=0
+
+source targets
+
+./format
+time (
+        # Debug builds
+        ninja -C ./build.tmp/clang-debug-libc++ $TARGETS &&
+        ninja -C ./build.tmp/gcc-debug $TARGETS &&
+        # Release builds
+        ninja -C ./build.tmp/clang-release-libc++ $TARGETS &&
+        # stdlib=libc++ asan
+        ninja -C ./build.tmp/clang-debug-asan $TARGETS &&
+        # stdlib=libc++ tsan
+        ninja -C ./build.tmp/clang-debug-tsan $TARGETS &&
+        true
+    )

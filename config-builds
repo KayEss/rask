@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+cd $(dirname $0)
+
+CMAKE="cmake -G Ninja ."
+
+
+export CC=gcc
+export CXX=g++
+export CXXFLAGS="-g"
+
+$CMAKE -B build.tmp/gcc-debug \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/gcc-debug
+
+$CMAKE -B build.tmp/gcc-release \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/gcc-release \
+    -DCMAKE_BUILD_TYPE=Release
+
+
+export CC=clang
+export CXX=clang++
+export CXXFLAGS="-g"
+
+$CMAKE -B build.tmp/clang-debug \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-debug
+
+$CMAKE -B build.tmp/clang-release \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-release \
+    -DCMAKE_BUILD_TYPE=Release
+
+
+export CXXFLAGS="-fno-omit-frame-pointer"
+
+$CMAKE -B build.tmp/clang-release-flamegraph \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-release-flamegraph \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+
+export CXXFLAGS="-g -stdlib=libc++"
+
+$CMAKE -B build.tmp/clang-debug-libc++ \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-debug-libc++
+
+$CMAKE -B build.tmp/clang-release-libc++ \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-release-libc++ \
+    -DCMAKE_BUILD_TYPE=Release
+
+
+export CXXFLAGS="-g -stdlib=libc++ -fsanitize=address"
+
+$CMAKE -B build.tmp/clang-debug-asan \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-debug-asan
+
+$CMAKE -B build.tmp/clang-release-asan \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-release-asan \
+    -DCMAKE_BUILD_TYPE=Release
+
+
+$CMAKE -B build.tmp/clang-debug-pmr-asan \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-debug-pmr-asan \
+    -DFELSPAR_FORCE_PMR=YES
+
+$CMAKE -B build.tmp/clang-release-pmr-asan \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-release-pmr-asan \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DFELSPAR_FORCE_PMR=YES
+
+
+export CXXFLAGS="-g -stdlib=libc++ -fsanitize=thread"
+
+$CMAKE -B build.tmp/clang-debug-tsan \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-debug-tsan
+
+$CMAKE -B build.tmp/clang-release-tsan \
+    -DBUILD_SHARED_LIBS=YES \
+    -DCMAKE_INSTALL_PREFIX=dist/clang-release-tsan \
+    -DCMAKE_BUILD_TYPE=Release
