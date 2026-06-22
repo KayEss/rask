@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(rask LANGUAGES CXX)
+project(rask LANGUAGES CXX C)
 
 # Aggregate target the vendored Felspar/planet test suites attach themselves to.
 # Build it explicitly (`cmake --build build.tmp --target check`) to compile and

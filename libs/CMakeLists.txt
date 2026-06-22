@@ -13,6 +13,9 @@
 #   parse       -> test, exceptions, memory, coro
 #   io          -> test, exceptions, memory, coro
 #   planet      -> io, parse (+ test, coro, exceptions, memory)
+#
+# BLAKE3 is independent of the felspar libraries; its CMake build lives in c/.
+add_subdirectory(BLAKE3/c)
 add_subdirectory(felspar-test)
 add_subdirectory(felspar-exceptions)
 add_subdirectory(felspar-memory)

@@ -47,7 +47,7 @@ under load. Examples:
   dispatched; handlers immediately hop pools — e.g. `tenant_hash_packet` posts its
   tree comparison to `responses`; `create_directory` / `file_exists` /
   `file_data_block` post their disk work to `files`.
-- `file_data_block` verifies the block's SHA-256 **on the I/O thread** and only
+- `file_data_block` verifies the block's BLAKE3 **on the I/O thread** and only
   posts the disk write to `files` if it matches — bad data is dropped without ever
   touching `files`.
 - A sweep runs as a coroutine on `files`, walks the directory tree, and posts each

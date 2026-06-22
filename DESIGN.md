@@ -171,7 +171,7 @@ This packet can only be sent by a host that believes that it has the full correc
 * variable -- tenant name.
 * variable -- file path name. Relative to the tenant root.
 * 64 bits -- byte offset. The offset of where this data block belongs.
-* 256 bits -- SHA256 hash of the block data
+* 256 bits -- BLAKE3 hash of the block data
 * variable -- data bytes up to 32KB. All but the last block are always 32KB.
 
 

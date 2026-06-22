@@ -35,8 +35,8 @@ These encodings recur throughout the stores:
 
 | Thing | Encoding | Example |
 | --- | --- | --- |
-| **Content / inode hash** | base64 of a 32-byte SHA-256 | `"n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg="` |
-| **Name hash** | **base32** of SHA-256 of the name (≈52 chars); each char selects one tree layer | `"pcg…"` |
+| **Content / inode hash** | base64 of a 32-byte BLAKE3 | `"n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg="` |
+| **Name hash** | **base32** of BLAKE3 of the name (≈52 chars); each char selects one tree layer | `"pcg…"` |
 | **Name-hash path** | name hash with `/` inserted in growing groups (2, 2, 3, 4, … chars) to spread files across directories | `"pc/g4/abc/…"` |
 | **Tick (priority / clock)** | 2-element array `[time, server]` — `time` is the int64 Lamport counter, `server` the uint32 node id. The 32-bit reserved field is **not** stored. | `[42, 2748190923]` |
 | **filetype** | one of `"directory"`, `"file"`, `"move-out"` | |
@@ -64,7 +64,7 @@ top-level (whole-node) hash.
 | --- | --- | --- |
 | `identity` | uint32 | Picked randomly from `/dev/urandom` on first start; persisted; may be hand-edited. Tie-breaker in tick comparison. |
 | `time` | tick `[int64, uint32]` | Highest Lamport time seen. Advanced by `next()` (mint) and `overheard()` (peer's clock). Absent until the first tick is minted. |
-| `hash` | base64 SHA-256 | Rolled up from all tenant hashes (see `rehash_tenants`). This is what peers compare in the version handshake. Absent until first rollup. |
+| `hash` | base64 BLAKE3 | Rolled up from all tenant hashes (see `rehash_tenants`). This is what peers compare in the version handshake. Absent until first rollup. |
 
 (The matching config envelope also carries a `socket` block — `{"bind", "port"}` —
 but that is configuration, not stored data.)
@@ -94,7 +94,7 @@ each with a pointer to its inode-tree database and its rolled-up tenant hash.
 | --- | --- | --- |
 | `known` | object | Keyed by tenant name. |
 | `known.<name>.database` | beanbag config | Locates the per-tenant inode tree root file (§5). |
-| `known.<name>.hash.data` | base64 SHA-256 | The tenant's top-level hash. Rolled up from the inode tree; fed into the node hash (§1). |
+| `known.<name>.hash.data` | base64 BLAKE3 | The tenant's top-level hash. Rolled up from the inode tree; fed into the node hash (§1). |
 
 
 ## 3. Subscriptions store — `subscriptions.json`
@@ -221,7 +221,7 @@ across the filesystem rather than into one giant file.
 
 Listed for completeness; these are **not** JSON. For each file, one memory-mapped
 binary file per tree level, named `<name-hash-path>-<level>.hashes` (level encoded
-in base32). Each holds a dense array of 32-byte SHA-256 block hashes:
+in base32). Each holds a dense array of 32-byte BLAKE3 block hashes:
 
 - **Level 0** — one hash per 32 KiB block of the file's data.
 - **Level n+1** — treats level *n*'s `.hashes` file as input and hashes *its*

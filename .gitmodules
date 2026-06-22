@@ -19,3 +19,6 @@
 [submodule "libs/felspar-io"]
 	path = libs/felspar-io
 	url = https://github.com/Felspar/io.git
+[submodule "libs/BLAKE3"]
+	path = libs/BLAKE3
+	url = git@github.com:BLAKE3-team/BLAKE3.git

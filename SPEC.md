@@ -135,7 +135,7 @@ Tenants and inodes are keyed by **name**, so their tree distributes entries by a
 hash of the name rather than by file content:
 
 - A node's position in the tree is determined by the **base-32 encoding of the
-  SHA-256 of its name**. Each base-32 character selects one of 32 children at one
+  BLAKE3 of its name**. Each base-32 character selects one of 32 children at one
   level of the tree (5 bits per level). This gives an even distribution and
   bounds tree depth.
 - A **leaf** holds the actual entries. When a leaf exceeds a **split
@@ -160,7 +160,7 @@ hash of the name rather than by file content:
 A file's content is hashed bottom-up into a single file hash:
 
 - The file is split into fixed-size **data blocks**. Block size is **32 KiB**.
-- Each block is hashed (SHA-256) to produce a leaf hash.
+- Each block is hashed (BLAKE3) to produce a leaf hash.
 - Leaf hashes are grouped and re-hashed level by level. In the retired build the
   grouping was **1024-wide**, because a level's hashes are packed (32 bytes each)
   and re-blocked at the same 32 KiB block size — so one 32 KiB block spans
@@ -181,9 +181,9 @@ A file's content is hashed bottom-up into a single file hash:
 
 ### 4.4 Hashes
 
-- Algorithm: **SHA-256** at all three levels. It is fast enough, has acceptable
-  collision resistance for content verification, and 256 bits fits the protocol's
-  fixed-width hash fields.
+- Algorithm: **BLAKE3** at all three levels. It is very fast (SIMD- and
+  thread-parallel), has acceptable collision resistance for content verification,
+  and its 256-bit output fits the protocol's fixed-width hash fields.
 - Hashes are rendered in **base-32** when used as tree addresses, so each
   character maps to exactly one 5-bit tree level.
 
@@ -270,7 +270,7 @@ Field types used below:
 
 - **tick** — a logical-clock priority value (time + server id); see §4.5.
 - **name** — a UTF-8 string: a tenant name, or a tenant-root-relative path.
-- **hash** — a 256-bit SHA-256 value.
+- **hash** — a 256-bit BLAKE3 value.
 - **data block** — up to one block (32 KiB) of raw file bytes.
 
 ### 6.1 Messages
@@ -540,7 +540,7 @@ Decisions inherited from the original design that the new build should *keep*:
 - Symmetric, stateful, hash-driven convergence protocol.
 - Lamport tick (time + identity tie-break) as both event order and conflict
   resolver; last-writer-by-tick wins.
-- 32 KiB blocks, SHA-256, base-32 tree addressing (name tree 32-way; file-data
+- 32 KiB blocks, BLAKE3, base-32 tree addressing (name tree 32-way; file-data
   tree 1024-way as built — see §4.3 for whether to unify).
 - Superset convergence with delete-by-live-event-only.
 - Bounded, spill-on-full send queues relying on resync for safety.
