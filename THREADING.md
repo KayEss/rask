@@ -1,63 +1,61 @@
 # Rask — Threading & concurrency design
 
-> Reference description of the **concurrency model** of the current (now-retired)
-> implementation, including its rate-limiting / back-pressure behaviour. It
-> records how work is partitioned across thread pools and where the system
-> deliberately throttles itself, so the rebuild (`SPEC.md`) can preserve the
-> properties that matter and drop the accidents. `SPEC.md` §3 gives the
-> library-agnostic "separation of concerns" view; this document is the concrete
-> realisation.
+> The **concurrency model** for the rebuild: how work is partitioned across
+> thread pools, where the system deliberately throttles itself, and the
+> synchronisation and failure-handling disciplines that hold it together.
+> `SPEC.md` §3 gives the library-agnostic "separation of concerns" view; this
+> document is the concrete threading model that realises it.
 
-The model is built on **reactor pools**: each pool owns one async I/O service
-(Boost ASIO `io_service`) run by a fixed set of worker threads, kept alive by a
-work guard until shutdown. Work is `post()`ed onto a pool, or driven by
-coroutines (`boost::asio::spawn`) running on it.
+The model is built on **reactor pools**: each pool owns an async I/O service /
+event loop run by a set of worker threads and kept alive until shutdown. Work is
+either posted onto a pool or driven by coroutines running on it.
 
 
 ## 1. The pools
 
-A node constructs **four pools of 8 threads each (32 worker threads)**, plus the
-filesystem-notification reader and the FRP wiring, all in one `workers` struct
-(`workers.cpp:53`). The pools are *not* sized to the machine — 8 is hard-coded
-(the pool default would otherwise be `hardware_concurrency()`).
+A node runs **four pools**, distinguished by the *latency class* of the work
+they carry rather than by their size. Each owns its own async I/O service and a
+set of worker threads, alongside the filesystem-notification reader.
 
-| Pool | Threads | Responsibility | Why separate |
-| --- | --- | --- | --- |
-| `io` | 8 | Network I/O: accept, socket read/write, heartbeats, the per-connection send loop. Also hosts the **inotify reader**. | Latency-critical; must never stall behind disk or CPU work. |
-| `responses` | 8 | Decide what to send a peer in reaction to a received packet (tenant / tenant-hash descent). | Short, CPU-light reactions kept off the I/O threads. |
-| `files` | 8 | Filesystem mutations: create dir, allocate/write/move files; runs **sweeps** and the change pipeline; hosts the FRP `local_server`. | Disk-bound; isolated so blocking syscalls don't choke I/O. |
-| `hashes` | 8 | Long-running (re)hashing of file content and inode-tree nodes. | Lowest priority; the heaviest work, throttled (see §4). |
+> Each pool's thread count is an **operator-tunable setting with a sensible
+> default**. Defaults should scale with hardware and may differ by pool role — a
+> latency-critical I/O pool and a CPU-bound hashing pool want different sizing.
+> What matters is the set of pools below and what each is for.
+
+| Pool | Responsibility | Why separate |
+| --- | --- | --- |
+| `io` | Network I/O: accept, socket read/write, heartbeats, the per-connection send loop. Also hosts the **filesystem-event reader**. | Latency-critical; must never stall behind disk or CPU work. |
+| `responses` | Decide what to send a peer in reaction to a received packet (tenant / tenant-hash descent). | Short, CPU-light reactions kept off the I/O threads. |
+| `files` | Filesystem mutations: create dir, allocate/write/move files; runs **sweeps** and the change pipeline; hosts the local filesystem-state bookkeeping. | Disk-bound; isolated so blocking syscalls don't choke I/O. |
+| `hashes` | Long-running (re)hashing of file content and inode-tree nodes. | Lowest priority; the heaviest work, throttled (see §4). |
 
 Two more runners share these pools rather than owning their own:
 
-- **inotify reader** — constructed on `w.io` (`notification.cpp:50`); filesystem
-  events arrive on an I/O thread and are immediately `post()`ed onward to `files`.
-- **FRP wiring (`local_server`)** — constructed on `w.files` (`workers.hpp:39`);
-  its internal state changes run inside a **strand** on that pool so they
-  serialise without a separate lock.
+- **filesystem-event reader** — runs on the I/O pool; events arrive there and are
+  immediately handed off to `files`.
+- **local filesystem-state bookkeeping** — runs on `files`; its state changes are
+  serialised on a strand on that pool, so they need no separate lock.
 
 
 ## 2. The work-handoff pattern
 
-The recurring discipline is: **do the latency-sensitive part on `io`, then
-`post()` the heavy part to the right pool.** This keeps the network responsive
-under load. Examples:
+The recurring discipline is: **do the latency-sensitive part on `io`, then hand
+the heavy part off to the right pool.** This keeps the network responsive under
+load. Examples:
 
-- A received packet is read and framed on `io` (`read_and_process`), then
-  dispatched; handlers immediately hop pools — e.g. `tenant_hash_packet` posts its
-  tree comparison to `responses`; `create_directory` / `file_exists` /
-  `file_data_block` post their disk work to `files`.
-- `file_data_block` verifies the block's BLAKE3 **on the I/O thread** and only
-  posts the disk write to `files` if it matches — bad data is dropped without ever
-  touching `files`.
+- A received packet is read and framed on `io`, then dispatched; handlers
+  immediately hop pools — a tenant-hash comparison goes to `responses`; directory
+  and file operations post their disk work to `files`.
+- A received data block is verified (BLAKE3) **on the I/O thread** and only
+  written if it matches — bad data is dropped without ever touching `files`.
 - A sweep runs as a coroutine on `files`, walks the directory tree, and posts each
   file-hash job to `hashes`.
 - Inode-tree partitioning, when a node splits, posts each child's rehash to
   `hashes` and lets the current transaction commit first, rather than holding the
-  database lock across the rehash (`tree.cpp`).
+  database lock across the rehash.
 
-Outbound sending is per-connection: a coroutine on a **`sending_strand`** drains
-that connection's queue, so a single connection's writes are serialised while
+Outbound sending is per-connection: a coroutine on a per-connection strand drains
+that connection's queue, so one connection's writes are serialised while
 different connections proceed in parallel.
 
 
@@ -66,16 +64,16 @@ different connections proceed in parallel.
 Cross-thread state is held in thread-safe containers and atomics rather than ad
 hoc locking:
 
-- **`tsmap` / `tsset`** (mutex-guarded maps/sets) for global registries:
-  `g_connections` (live sockets), `g_watches` (inotify wd → tenant), `g_tenants`,
-  `g_inodes` / `g_hashing` (rehash/hashing dedup sets).
-- **`tsring`** — the per-connection outbound queue (§4).
-- **strands** — `sending_strand` (per connection) and the FRP `barrier` serialise
-  without explicit locks.
-- **`std::atomic`** — connection peer `identity`, inode block `state`, tenant
-  `hash`, the global server identity, and the connection-id counter.
-- Document-store writes are **transactional** (`transformation` + `commit`), so
-  concurrent mutations to the same beanbag are serialised by the store itself.
+- **Thread-safe (mutex-guarded) maps and sets** for the global registries: live
+  connections, the watch-descriptor → tenant map, known tenants, and the
+  rehash/hashing dedup sets.
+- **A thread-safe ring** for each connection's outbound queue (§4).
+- **Strands** — the per-connection send loop and the local-state bookkeeping each
+  run on a strand, serialising related work without explicit locks.
+- **Atomics** for small hot values: a connection's peer identity, a block's state,
+  a tenant's rolled-up hash, the node identity, and the connection-id counter.
+- **Transactional** document-store writes, so concurrent mutations to the same
+  store are serialised by the store itself.
 
 
 ## 4. Rate limiting & back-pressure
@@ -85,66 +83,59 @@ mechanisms plus two OS-level ceilings.
 
 ### 4a. Hashing concurrency limiter (the main throttle)
 
-A sweep does **not** fire off a hash job for every file it finds. It holds an
-`eventfd::limiter` capped at **8 concurrent hash jobs** (`sweep.folder.cpp:38`,
-`f5::eventfd::limiter limit(w.hashes.get_io_service(), yield, 8)`):
+A sweep does **not** fire off a hash job for every file it finds. It holds a
+concurrency limiter capped at a bounded number of in-flight hash jobs:
 
-- Each file found takes a job slot (`++limit`). If 8 are already outstanding, the
-  sweep coroutine **yields (blocks) until a hash completes**, then continues. So
-  the directory-walk producer is paced to the hashing consumer.
-- A job signals completion (via the eventfd) from the `rehash_file` callback; the
-  limiter's destructor **drains all outstanding jobs before the sweep returns**,
-  so a sweep can't "finish" while hashes are still in flight.
+- Each file found takes a slot. When the cap is reached the sweep coroutine
+  **yields (blocks) until a hash completes**, then continues. So the
+  directory-walk producer is paced to the hashing consumer.
+- The limiter **drains all outstanding jobs before the sweep returns**, so a
+  sweep can't "finish" while hashes are still in flight.
 
-Effect: no matter how large a tenant is, a sweep keeps at most 8 files being
-hashed at once — bounding memory, disk churn, and `hashes`-pool contention. This
-is the rate-limiting behaviour to carry forward; the cap of 8 is a tuning
-constant, not a fundamental.
+Effect: no matter how large a tenant is, a sweep keeps at most a bounded number
+of files being hashed at once — bounding memory, disk churn, and `hashes`-pool
+contention. This is the rate-limiting behaviour to carry forward; the cap itself
+is a tunable default, not a fundamental.
 
-> Hashing is also **de-duplicated**: `g_hashing` ensures a file already being
-> hashed isn't hashed again concurrently, and `rehash_file` skips work entirely
-> when the file's `stat` is unchanged since the last recorded hash.
+> Hashing is also **de-duplicated**: a file already being hashed isn't hashed
+> again concurrently, and rehashing is skipped entirely when the file's stat is
+> unchanged since the last recorded hash.
 
 ### 4b. Bounded outbound queue with spill (network back-pressure)
 
-Each connection's outbound queue is a fixed **256-slot ring** (`tsring`,
-`connection.cpp:150`). On overflow the new packet is **dropped ("spilled"), not
-blocked on** (`queue()` uses the predicate form of `push_back` that refuses the
-insert and bumps the `packets/spills` counter).
+Each connection's outbound queue is a fixed-size ring. On overflow the new packet
+is **dropped ("spilled"), not blocked on**.
 
 Spilling is safe by design: the protocol is convergent, so anything lost to a
 spill is rediscovered by the next hash comparison (heartbeat or sweep) and
-re-sent. This lets a fast producer never block the sender thread — the queue
-depth itself is the back-pressure, and the drop is the relief valve.
+re-sent. A fast producer therefore never blocks the sender — the queue depth
+itself is the back-pressure, and the drop is the relief valve.
 
 ### 4c. Unlimited producer/consumer signal
 
-The sender's wake-up channel is an `eventfd::unlimited` — it only *counts* queued
-work and never blocks the producer. The actual bound lives in the 256-slot ring
-(4b), not in this signal; the signal just tells the sender how many items to
-drain.
+The sender's wake-up channel only *counts* queued work and never blocks the
+producer. The actual bound lives in the fixed-size ring (4b); the signal just
+tells the sender how many items to drain.
 
 ### 4d. OS ceilings
 
-- **inotify watches.** One watch per directory; on failure the log points at
-  `/proc/sys/fs/inotify/max_user_watches` (`notification.cpp:185`). At the
-  ten-thousand-directory scale this kernel limit must be raised.
+- **inotify watches.** One watch per directory; at the ten-thousand-directory
+  scale the kernel's `max_user_watches` limit must be raised.
 - **File descriptors.** Every socket, eventfd, watch, and memory-mapped file
-  consumes an fd, so the server raises `RLIMIT_NOFILE` to **20 480** at startup
-  (`main.cpp`).
+  consumes an fd, so the server raises its open-file limit well above the default
+  at startup.
 
 
 ## 5. Failure handling
 
-Each pool thread runs its `io_service` inside a loop wrapped by a shared exception
-handler (`workers.cpp`). On an uncaught exception it logs at `critical`, then:
+Each pool thread runs its event loop inside a loop wrapped by a shared exception
+handler. On an uncaught exception it logs at `critical`, then either:
 
-- if `terminate on exception` is **true (default)** — flush the log queue and
-  `std::terminate()` the whole process;
-- if **false** — the handler returns `true` and the thread re-enters `run()`,
-  attempting to carry on.
+- **terminate on exception (default)** — flush the log queue and terminate the
+  whole process; or
+- **carry on** — the thread re-enters its run loop and attempts to continue.
 
-So by default any unhandled error in any of the 32 threads brings the node down
+So by default any unhandled error in any pool thread brings the node down
 (after flushing logs) rather than leaving it in a half-working state.
 
 
@@ -161,18 +152,23 @@ Properties worth preserving:
 - **Per-connection send serialisation** and transactional store writes instead of
   broad locking.
 
+Decisions for the rebuild:
+
+- **Pools are defined by role, not by a fixed thread count.** Keep the four
+  latency classes (§1); make each pool's thread count an operator-tunable setting
+  with a sensible default that scales with hardware and may differ by role.
+
 Open questions / things to reconsider:
 
-1. **Fixed 8-thread pools.** Hard-coded regardless of core count and of pool role
-   (I/O vs. CPU-bound hashing want different sizing). Revisit whether these should
-   scale with hardware and differ per pool.
-2. **Tuning constants.** The hash limit (8), queue size (256), heartbeat (5 s),
-   reconnect watchdog (15 s), and fd limit (20 480) are scattered magic numbers —
-   gather and justify them.
-3. **Terminate-on-exception default.** Whole-process abort on any thread's
+1. **Tuning constants.** The hash-job cap, outbound-queue size, heartbeat
+   interval, reconnect watchdog, and fd limit are tuning knobs — settle on
+   sensible defaults, and expose the operationally relevant ones (like the pool
+   sizes above) as configuration.
+2. **Terminate-on-exception default.** Whole-process abort on any thread's
    exception is blunt; decide the supervision strategy deliberately.
-4. **Pool coupling.** The inotify reader on `io` and the FRP server on `files`
-   share pools with unrelated work; confirm that's still wanted.
-5. **Spill observability.** Spilled packets are only a counter today; if the new
+3. **Pool coupling.** The filesystem-event reader on `io` and the local-state
+   bookkeeping on `files` share pools with unrelated work; confirm that's still
+   wanted.
+4. **Spill observability.** Spilled packets are only a counter today; if the new
    build keeps drop-on-full, make sure the resync that recovers them is easy to
    observe (ties to `SPEC.md` §9 terminal-log monitoring).
