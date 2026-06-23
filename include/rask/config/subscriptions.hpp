@@ -9,14 +9,16 @@
 #include <string_view>
 
 
-namespace rask::data {
+namespace rask::config {
 
 
     /// ## A tenant subscription
     /**
      * Where a subscribed tenant's content lives on local disk. A node can
-     * *know* a tenant (see `tenants`) without *subscribing* to it (BOOKKEEPING
-     * §3, `SPEC.md` §5). The storage layer enforces a trailing separator on
+     * *know* a tenant (see `data::tenants`) without *subscribing* to it
+     * (BOOKKEEPING §3, `SPEC.md` §5); which tenants this node holds locally,
+     * and where, is local-machine configuration (`SPEC.md` §10), so it lives in
+     * the config layer. The storage layer enforces a trailing separator on
      * `path`.
      */
     struct subscription {

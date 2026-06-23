@@ -111,6 +111,28 @@ Two persistent stores back a node (see §5):
 - a small **server/metadata store** (identity, clock, tenant list, subscriptions);
 - per-tenant **metadata trees** describing every inode and its hash.
 
+### 3.1 State layers
+
+Cutting across those concerns, the state a node holds falls into three layers,
+distinguished by *what kind* of thing each datum is rather than by which worker
+touches it. The dependency direction is strict: each layer may reference the one
+below it, never the reverse.
+
+| Layer | Holds | Examples |
+| --- | --- | --- |
+| **Config** (foundation) | Local-machine setup — how *this* node is configured. | Node identity (§4.6); peers to dial; subscriptions and their local paths; listen socket, logging, operational toggles, store locations (§10). |
+| **Wire** | The vocabulary transferred between peers (§6). | Content/inode hash; logical-clock tick. |
+| **Data** | State that arises during execution and is persisted as the node runs (§5). | Per-tenant inode trees; the known-tenant set and rolled-up hashes; the live clock and top-level hash; name-tree addresses. |
+
+Config sits underneath wire: a node's identity, for instance, is local
+configuration that the wire **tick** merely *references*, so the tick (wire)
+depends on the identity (config), not the other way round. Data sits on top of
+both. All three are persisted through the same serialisation mechanism (§6.5) —
+the split is conceptual, not a difference in storage. Configuration is read at
+startup and, in the MVP, not reconfigured at runtime (§2), but the config layer
+is modelled as **runtime-mutable** so that a future reconfiguration mechanism
+need not restructure it.
+
 
 ## 4. Data model
 
@@ -234,6 +256,13 @@ Each node persists:
 - **Per-tenant inode trees** — the name tree of §4.2, storing for each inode its
   metadata (type, size, modified time, content hash, and the priority tick of the
   last change).
+
+The subscription list and the peer list (§10) are local **configuration**
+(§3.1) rather than execution data; they are catalogued here because they are
+persisted through the same mechanism, but they describe how the node is set up,
+not state that arises as it runs. The identity stored in the server store is
+likewise a config value (§4.6); the server store records the active, persisted
+copy alongside the genuinely runtime clock and top-level hash.
 
 The first implementation stored all of this as partitioned JSON document stores
 ("beanbags"), one database file per tree node, ideally on a separate spindle
@@ -469,6 +498,9 @@ or HTTP/JSON API (that is deferred; see §2).
 
 
 ## 10. Configuration
+
+These settings form the **config layer** (§3.1) — the foundation the wire and
+data layers sit on.
 
 - Configuration is supplied as one or more documents merged at startup; **there
   is no runtime reconfiguration** in the MVP.

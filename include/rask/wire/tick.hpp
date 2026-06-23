@@ -1,7 +1,7 @@
 #pragma once
 
 
-#include <rask/wire/identity.hpp>
+#include <rask/config/identity.hpp>
 
 #include <planet/serialise/forward.hpp>
 
@@ -34,7 +34,7 @@ namespace rask::wire {
         /// ### 64-bit monotonic logical counter (the Lamport component)
         std::int64_t time = {};
         /// ### Originating node identity; tie-breaker when `time` is equal
-        node_id server = {};
+        config::node_id server = {};
         /// ### Reserved, currently zero — pads the tick to a clean 16 bytes
         std::uint32_t reserved = {};
 

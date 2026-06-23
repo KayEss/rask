@@ -27,6 +27,14 @@ var/lib/rask/
 > (`{"name", "filepath", "initial"}`) — `initial` is the document written when the
 > data file is first created. The files under `var/lib/rask/` are the *data*
 > documents described below. This doc covers the data.
+>
+> **Rebuild note.** The rebuild draws this line more sharply, as three layers
+> (`SPEC.md` §3.1): **config** (local-machine setup — node identity, the peer
+> list, and subscriptions), **wire** (the peer vocabulary), and **data**
+> (execution state). So the peer list (§4) and subscriptions (§3) below are
+> *config* in the rebuild even though the old build filed them under
+> `var/lib/rask/`; identity stays in the server store as the active value of a
+> config datum.
 
 
 ## Conventions
@@ -102,6 +110,9 @@ each with a pointer to its inode-tree database and its rolled-up tenant hash.
 Which tenants this node actually holds on local disk, and where. A node can *know*
 a tenant (§2) without *subscribing* to it.
 
+> **Rebuild note.** This is part of the **config layer** in the rebuild
+> (`SPEC.md` §3.1, §10): it describes local-machine setup, not execution state.
+
 ```json
 {
   "subscription": {
@@ -120,6 +131,9 @@ a tenant (§2) without *subscribing* to it.
 
 Outbound connections to establish and keep alive (the reconnect watchdog redials
 these). Inbound peers are not recorded here.
+
+> **Rebuild note.** This is part of the **config layer** in the rebuild
+> (`SPEC.md` §3.1, §10): which peers to dial is local-machine setup.
 
 ```json
 {

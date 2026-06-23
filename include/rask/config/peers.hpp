@@ -8,15 +8,17 @@
 #include <vector>
 
 
-namespace rask::data {
+namespace rask::config {
 
 
     /// ## An outbound peer
     /**
      * A peer this node should dial and keep connected; the reconnect watchdog
-     * redials these (inbound peers are not recorded). BOOKKEEPING §4 keyed
-     * these by a name that the old code ignored, so the rebuild stores them as
-     * a plain list. `port` is kept as a string so service names resolve too.
+     * redials these (inbound peers are not recorded). Which peers to dial is
+     * local-machine configuration (`SPEC.md` §10), so it lives in the config
+     * layer. BOOKKEEPING §4 keyed these by a name that the old code ignored, so
+     * the rebuild stores them as a plain list. `port` is kept as a string so
+     * service names resolve too.
      */
     struct peer {
         /// ### Serialisation box name
